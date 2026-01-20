@@ -5,11 +5,22 @@
 #include "GPS_Feature.h"
 #include "CALL_SOS_Feature.h"
 #include "SMS_Feature.h"
+#include "WEB_Portal.h"
+#include "WIFI_Manager.h"
+
 /*==================================================================================================
 *                          GLOBAL VARIABLES
 ==================================================================================================*/
 /* Hardware serial instance for communication with GSM/GNSS module */
 HardwareSerial gsmSerialPort(1);
+
+/* Instantiates the core object responsible for saving/loading credentials and managing connection attempts. */
+WifiManagerCustom wifiManager;
+
+/* Instantiates the WebPortal object, passing the address (&) of the wifiManager. 
+   This establishes the dependency for the portal to use the manager's functions (e.g., saveCredentials). 
+    */
+WebPortal portal(&wifiManager);
 
 /* Global variable to track WiFi connection status */
 bool wifiConnectedStatus = false;
@@ -81,6 +92,31 @@ void setup() {
   /* Get the number of milliseconds since the program started and store it in systemCurrentTimeMs */
   systemCurrentTimeMs = millis();
 
+  /* 1. Load the last saved SSID and Password from NVS/flash memory into wifiManager object members. */
+  wifiManager.loadCredentials();
+
+  /* 2. Attempt to connect to the saved Wi-Fi network using retries (MAX_TRIES). */
+  wifiConnectedStatus = false;
+  if (!wifiManager.connectWiFi()) {
+    /* If connection fails after all retries: */
+
+
+    /* Log the failure and the fallback action. */
+    Serial.println("WiFi failed → Starting AP Portal");
+
+    /* Start the WebPortal in Access Point mode to allow user configuration. */
+    portal.startPortal();
+    wifiConnectedStatus = false;
+  } else {
+    /* If connection is successful: */
+    wifiConnectedStatus = true;
+    connectedSSID = wifiManager.savedSSID;
+
+    /* Log the success message. The device is now ready for its main application logic. */
+    Serial.println("WiFi Connected OK!");
+  }
+
+
   /* Beep the buzzer twice to indicate system initialization is complete */
   beepBuzzer(10);
 }
@@ -102,11 +138,17 @@ void setup() {
  ****************************************************************************************/
 void loop() {
 
+  /* If the Web Portal is running (device is in AP mode), this continuously services 
+   incoming DNS and HTTP requests from the connected client (e.g., a phone/laptop). 
+   This ensures the portal page loads and the Save button works. 
+    */
+  portal.handleClient();
+
   /* Call the GPS request handler function */
   requestGpsLocation(systemCurrentTimeMs, 30000UL, DEBUG_MODE_ENABLED);
 
- handleCallAndATPassthrough(BUTTON_PIN, DEBUG_MODE_ENABLED, 
-                               wifiConnectedStatus, connectedSSID.c_str());
-    
-    delay(175);
+  handleCallAndATPassthrough(BUTTON_PIN, DEBUG_MODE_ENABLED,
+                             wifiConnectedStatus, connectedSSID.c_str());
+
+  delay(175);
 }
